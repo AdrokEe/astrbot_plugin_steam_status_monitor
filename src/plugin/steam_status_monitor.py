@@ -4,7 +4,9 @@ from astrbot.api.event import filter, AstrMessageEvent
 import time
 import asyncio
 import os
+import json
 from ..application.services.monitor_admin import MonitorAdminService
+from ..application.services.owned_games import OwnedGamesService
 from ..application.services.monitor_control import MonitorControlService
 from ..application.services.ranking import RankingService
 from ..application.services.price_candidates import PriceCandidateCache
@@ -50,7 +52,7 @@ class SteamStatusMonitorV3(
             logger.error("当前插件已在运行中。请重启astrbot而非重载插件")
             return
         self._ssm_running = True
-        self._plugin_version = "4.9.2"
+        self._plugin_version = "4.9.3"
         self.context = context
         # 分群管理：所有状态数据均以 group_id 为 key
         self.group_steam_ids = {}         # {group_id: [steamid, ...]}
@@ -146,6 +148,8 @@ class SteamStatusMonitorV3(
         # QQ-SteamID 绑定数据
         self._bind_data = {}  # {qq: {sid, nickname}}
         self._load_bind_data()
+        self.owned_games_service = OwnedGamesService(self)
+        self._owned_games_task = asyncio.create_task(self.owned_games_service.run_loop())
         # --- 通知合并缓冲区：SessionService 将开始/结束通知写入此队列，由主轮询统一 flush ---
         self._pending_end_notifications = {}  # {group_id: [notification_dict, ...]}
         # --- AstrBot Plugin Pages 管理后台 ---
@@ -164,6 +168,7 @@ class SteamStatusMonitorV3(
             getattr(self, '_achievement_blacklist_verify_task', None),
             getattr(self, '_itad_http_client_task', None),
             getattr(self, '_steam_store_http_client_task', None),
+            getattr(self, '_owned_games_task', None),
         ):
             if t and not t.done():
                 t.cancel()
@@ -200,6 +205,20 @@ class SteamStatusMonitorV3(
         '''手动启动Steam状态监控轮询（分群）'''
         async for result in monitor.on(self, event):
             yield result
+
+    @filter.llm_tool(name="steam_owned_games")
+    async def steam_owned_games(self, event: AstrMessageEvent, query: str = "", offset: int = 0, limit: int = 50) -> str:
+        """查询当前 QQ 发送者绑定的 Steam 游戏库，支持按游戏名筛选和翻页。不能查询其他用户。
+
+        Args:
+            query(string): 可选的游戏名关键词，留空时列出所有游戏。
+            offset(number): 从第几个匹配游戏开始，默认 0。
+            limit(number): 本次最多返回多少款游戏，默认 50，最大 100。
+        """
+        result = await self.owned_games_service.list_for_sender(
+            event.get_sender_id(), query=query, offset=offset, limit=limit,
+        )
+        return json.dumps(result, ensure_ascii=False)
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("steam addid")

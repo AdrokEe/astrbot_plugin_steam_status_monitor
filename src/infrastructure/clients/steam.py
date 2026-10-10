@@ -123,6 +123,38 @@ def classify_steam_store_error(exc) -> ProviderError:
 
 
 class SteamClientMixin:
+    async def fetch_owned_games(self, steam_id):
+        """读取可见的完整游戏库；不可见或不完整的响应不能用于差异比较。"""
+        if not self.API_KEY:
+            raise SteamClientError("未配置 Steam API Key")
+        url = f"{self.STEAM_API_BASE}/IPlayerService/GetOwnedGames/v1/"
+        params = {
+            "key": self.API_KEY,
+            "steamid": str(steam_id),
+            "include_appinfo": "1",
+            "include_played_free_games": "1",
+        }
+        try:
+            async with httpx.AsyncClient(
+                timeout=20,
+                **httpx_client_kwargs(self.proxy),
+            ) as client:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                payload = response.json().get("response")
+        except (httpx.HTTPError, ValueError, TypeError, AttributeError) as exc:
+            # 不记录 URL、请求参数或异常文本，避免 API Key 进入日志。
+            raise SteamClientError("Steam 游戏库请求失败") from exc
+        if not isinstance(payload, dict):
+            raise SteamClientError("Steam 游戏库响应格式异常")
+        games = payload.get("games", [])
+        count = payload.get("game_count")
+        if not isinstance(count, int) or not isinstance(games, list) or len(games) != count:
+            raise SteamClientError("Steam 游戏库不可见或响应不完整")
+        if any(not isinstance(game, dict) or not isinstance(game.get("appid"), int) for game in games):
+            raise SteamClientError("Steam 游戏库游戏条目格式异常")
+        return games
+
     def _remember_store_error(self, error: ProviderError):
         self.last_store_error = error
         return error

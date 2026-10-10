@@ -11,6 +11,7 @@ from ...shared.logging import logger
 from ...shared.utils.notify_session import is_sendable_group_session
 from ...presentation.renderers.game_start import render_game_start
 from ...presentation.renderers.game_end import render_game_end
+from ...presentation.renderers.owned_game import render_owned_game
 
 
 class NotificationTrackingMixin:
@@ -74,6 +75,16 @@ class NotificationTrackingMixin:
                     online_count=await self.get_game_online_count(noti["gameid"]),
                     appid=noti.get("gameid"), proxy=self.proxy,
                     version=self._plugin_version, sgdb_api_base=self.SGDB_API_BASE,
+                )
+            elif noti["type"] == "owned":
+                status = noti.get("status", {})
+                img_bytes = await render_owned_game(
+                    self.data_dir, noti["sid"], noti["name"],
+                    status.get("avatarfull") or status.get("avatar"),
+                    noti["gameid"], noti["game"],
+                    sgdb_api_key=self.SGDB_API_KEY, proxy=self.proxy,
+                    api_key=self.API_KEY, sgdb_api_base=self.SGDB_API_BASE,
+                    steam_api_base=self.STEAM_API_BASE,
                 )
             else:
                 end_time_str = datetime.fromtimestamp(noti["quit_time"]).strftime("%Y-%m-%d %H:%M")
@@ -160,6 +171,8 @@ class NotificationTrackingMixin:
             for notification in matched_notifications:
                 if notification["type"] == "start":
                     line = f"🟢【{notification['name']}】开始游玩 {notification['game']}\n"
+                elif notification["type"] == "owned":
+                    line = f"🎮【{notification['name']}】新入库游戏：{notification['game']}\n"
                 else:
                     line = f"👋 {notification['name']} 不玩 {notification['game']}，游玩时间 {notification['duration_str']}\n"
                 if self.config.get("notify_send_text", True):

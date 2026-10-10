@@ -1,9 +1,9 @@
 name: steam_status_monitor_V3
-display_name: Steam 状态监控
-desc: 用于监控steam指定玩家的在线/离线/游戏状态变更，并在状态变化时推送通知。
-author: Maoer
-repo: https://github.com/Maoer233/astrbot_plugin_steam_status_monitor
-version: 4.9.2
+display_name: Steam 状态监控（AI 游戏库）
+desc: 监控 Steam 玩家状态和新增入库游戏，支持 AI 查询绑定用户的游戏库。
+author: Maoer, AdrokE
+repo: https://github.com/AdrokEe/astrbot_plugin_steam_status_monitor
+version: 4.9.3
 astrbot_version: ">=4.24.2"
 tags:
   - steam

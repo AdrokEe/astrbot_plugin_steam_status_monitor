@@ -54,6 +54,12 @@
     "hint": "用逗号分隔，依次为[游戏中,12分钟内,3小时内,24小时内,48小时内,超过48小时]，如 1,3,5,10,20,30",
     "default": "1,3,5,10,20,30"
   },
+  "owned_games_poll_interval": {
+    "description": "游戏库同步间隔（秒）-修改后重启AstrBot生效",
+    "type": "int",
+    "hint": "默认 1800 秒；至少每 60 秒同步一次。首次同步只建立基线，后续新增入库游戏按现有群通知链路推送图片。",
+    "default": 1800
+  },
   "retry_times": {
     "description": "Steam API请求重试次数 -修改后重启AstrBot生效",
     "type": "int",
