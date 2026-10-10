@@ -17,6 +17,28 @@ async def on(plugin, event):
     yield event.plain_result(result.message)
 
 
+async def syncgames(plugin, event):
+    group_id = group_id_of(event)
+    if not is_valid_group_id(group_id):
+        yield event.plain_result("请在需要同步游戏库的群聊中使用 /steam syncgames。")
+        return
+    if not plugin.API_KEY:
+        yield event.plain_result("未配置 Steam API Key，请先在插件配置中填写 steam_api_key。")
+        return
+    if group_id not in plugin.running_groups or not plugin.group_monitor_enabled.get(group_id, True):
+        yield event.plain_result("本群尚未启动监控，请先使用 /steam on。")
+        return
+    if not plugin.group_steam_ids.get(group_id):
+        yield event.plain_result("本群没有监控的 Steam 玩家，请先使用 /steam addid 添加。")
+        return
+    result = await plugin.owned_games_service.sync_group(group_id)
+    yield event.plain_result(
+        f"本群游戏库同步完成：{result['players']} 位玩家，"
+        f"新入库 {result['added']} 款，首次建立基线 {result['baselines']} 位，"
+        f"失败 {result['failed']} 位。"
+    )
+
+
 async def addid(plugin, event, steamid: str, at_user: str = "", nickname: str = ""):
     group_id = group_id_of(event)
     if not is_valid_group_id(group_id):

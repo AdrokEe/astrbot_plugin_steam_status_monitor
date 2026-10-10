@@ -12,6 +12,7 @@ import httpx
 
 from src.application.services.owned_games import OwnedGamesService
 from src.infrastructure.clients.steam import SteamClientError, SteamClientMixin
+from src.presentation.commands import monitor
 from src.presentation.renderers.owned_game import render_owned_game_image
 
 
@@ -111,6 +112,41 @@ class OwnedGamesServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["games"][0]["appid"], 10)
         self.assertEqual(result["games"][0]["playtime_forever"], 120)
 
+    async def test_manual_sync_only_checks_current_group_and_reports_result(self):
+        self.plugin.group_steam_ids["group-2"] = ["steam-2"]
+        self.plugin.running_groups.add("group-2")
+        self.plugin.games = [{"appid": 10, "name": "旧游戏"}]
+        first = await self.service.sync_group("group-1")
+        self.assertEqual(first, {"players": 1, "baselines": 1, "added": 0, "failed": 0})
+        self.assertNotIn("steam-2", self.service.snapshots)
+
+        self.plugin.games.append({"appid": 20, "name": "新游戏"})
+        second = await self.service.sync_group("group-1")
+        self.assertEqual(second, {"players": 1, "baselines": 0, "added": 1, "failed": 0})
+        self.assertEqual(len(self.plugin.notifications), 1)
+
+    async def test_manual_sync_reports_fetch_failures_without_replacing_baseline(self):
+        self.plugin.games = [{"appid": 10, "name": "旧游戏"}]
+        await self.service.sync_group("group-1")
+        self.plugin.fetch_owned_games = AsyncMock(side_effect=SteamClientError("private"))
+        result = await self.service.sync_group("group-1")
+        self.assertEqual(result, {"players": 1, "baselines": 0, "added": 0, "failed": 1})
+        self.assertEqual(len(self.service.snapshots["steam-1"]), 1)
+
+    async def test_manual_and_periodic_sync_do_not_send_duplicate_new_game(self):
+        self.plugin.games = [{"appid": 10, "name": "旧游戏"}]
+        await self.service.sync_group("group-1")
+        self.plugin.games.append({"appid": 20, "name": "新游戏"})
+        original_fetch = self.plugin.fetch_owned_games
+
+        async def slow_fetch(sid):
+            await asyncio.sleep(0.01)
+            return await original_fetch(sid)
+
+        self.plugin.fetch_owned_games = slow_fetch
+        await asyncio.gather(self.service.sync_group("group-1"), self.service.sync_all())
+        self.assertEqual(len(self.plugin.notifications), 1)
+
 
 class FakeSteam(SteamClientMixin):
     API_KEY = "secret"
@@ -183,3 +219,24 @@ class OwnedGameNotificationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(failed, [])
         self.assertEqual(plugin.context.send_message.await_args.args[1], [("image", "card.png")])
+
+
+class ManualSyncCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_command_syncs_current_group_and_reports_baseline(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plugin = FakePlugin(tmp)
+            plugin.API_KEY = "test-key"
+            plugin.games = [{"appid": 10, "name": "旧游戏"}]
+            plugin.group_steam_ids = {"12345678": ["steam-1"]}
+            plugin.running_groups = {"12345678"}
+            plugin.owned_games_service = OwnedGamesService(plugin)
+            event = SimpleNamespace(get_group_id=lambda: "12345678", plain_result=lambda text: text)
+            messages = [item async for item in monitor.syncgames(plugin, event)]
+        self.assertEqual(len(messages), 1)
+        self.assertIn("首次建立基线 1 位", messages[0])
+        self.assertEqual(plugin.notifications, [])
+
+    async def test_command_rejects_private_chat(self):
+        event = SimpleNamespace(get_group_id=lambda: "", plain_result=lambda text: text)
+        messages = [item async for item in monitor.syncgames(object(), event)]
+        self.assertIn("请在需要同步游戏库的群聊", messages[0])

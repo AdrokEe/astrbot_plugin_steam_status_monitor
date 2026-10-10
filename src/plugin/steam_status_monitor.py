@@ -52,7 +52,7 @@ class SteamStatusMonitorV3(
             logger.error("当前插件已在运行中。请重启astrbot而非重载插件")
             return
         self._ssm_running = True
-        self._plugin_version = "4.9.3"
+        self._plugin_version = "4.9.4"
         self.context = context
         # 分群管理：所有状态数据均以 group_id 为 key
         self.group_steam_ids = {}         # {group_id: [steamid, ...]}
@@ -204,6 +204,13 @@ class SteamStatusMonitorV3(
     async def steam_on(self, event: AstrMessageEvent):
         '''手动启动Steam状态监控轮询（分群）'''
         async for result in monitor.on(self, event):
+            yield result
+
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    @filter.command("steam syncgames")
+    async def steam_syncgames(self, event: AstrMessageEvent):
+        """立即同步本群监控玩家的 Steam 游戏库并推送新入库游戏。"""
+        async for result in monitor.syncgames(self, event):
             yield result
 
     @filter.llm_tool(name="steam_owned_games")

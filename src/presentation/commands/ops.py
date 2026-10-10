@@ -18,6 +18,7 @@ from ...shared.logging import logger
 HELP_TEXT = (
     "Steam状态监控插件指令：\n"
     "/steam on - 启动监控\n"
+    "/steam syncgames - 立即同步本群游戏库并推送新入库游戏（管理员）\n"
     "/steam off - 停止监控\n"
     "/steam price [游戏名或Steam链接] - 查询游戏价格、史低与地区对比\n"
     "/steam px [游戏名] - 价格查询快捷版，直接返回第一条匹配\n"

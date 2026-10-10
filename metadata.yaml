@@ -3,7 +3,7 @@ display_name: Steam 状态监控（AI 游戏库）
 desc: 监控 Steam 玩家状态和新增入库游戏，支持 AI 查询绑定用户的游戏库。
 author: Maoer, AdrokE
 repo: https://github.com/AdrokEe/astrbot_plugin_steam_status_monitor
-version: 4.9.3
+version: 4.9.4
 astrbot_version: ">=4.24.2"
 tags:
   - steam

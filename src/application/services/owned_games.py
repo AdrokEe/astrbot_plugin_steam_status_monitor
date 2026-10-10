@@ -17,6 +17,7 @@ class OwnedGamesService:
         self.plugin = plugin
         self.path = os.path.join(plugin.data_dir, self.FILE_NAME)
         self.snapshots = self._load()
+        self._sync_locks = {}
 
     def _load(self):
         try:
@@ -79,7 +80,37 @@ class OwnedGamesService:
 
         await asyncio.gather(*(sync_one(sid, groups) for sid, groups in groups_by_sid.items()))
 
+    async def sync_group(self, group_id):
+        """手动同步当前群的主监控玩家，并汇总结果。"""
+        gid = str(group_id)
+        ids = list(dict.fromkeys(str(sid) for sid in self.plugin.group_steam_ids.get(gid, [])))
+        result = {"players": len(ids), "baselines": 0, "added": 0, "failed": 0}
+        semaphore = asyncio.Semaphore(4)
+
+        async def sync_one(sid):
+            async with semaphore:
+                try:
+                    return await self.sync_player(sid, [gid])
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("手动同步 Steam 游戏库失败 (SteamID=%s): %s", sid, exc)
+                    return None
+
+        for outcome in await asyncio.gather(*(sync_one(sid) for sid in ids)):
+            if outcome is None:
+                result["failed"] += 1
+            else:
+                result["baselines"] += int(outcome["baseline"])
+                result["added"] += outcome["added"]
+        return result
+
     async def sync_player(self, sid, groups):
+        lock = self._sync_locks.setdefault(str(sid), asyncio.Lock())
+        async with lock:
+            return await self._sync_player(sid, groups)
+
+    async def _sync_player(self, sid, groups):
         games = await self.plugin.fetch_owned_games(sid)
         old_history = self.snapshots.get(str(sid), [])
         old_games = old_history[-1]["games"] if old_history else None
@@ -94,12 +125,12 @@ class OwnedGamesService:
                 self.snapshots.pop(str(sid), None)
             raise
         if old_games is None:
-            return  # 首轮只建立基线，绝不将整库误报为新增。
+            return {"baseline": True, "added": 0}  # 首轮只建立基线。
 
         old_ids = {str(game["appid"]) for game in old_games}
         additions = [game for game in games if str(game["appid"]) not in old_ids]
         if not additions:
-            return
+            return {"baseline": False, "added": 0}
         for group_id in groups:
             status = self.plugin.group_last_states.get(group_id, {}).get(str(sid), {})
             name = self.plugin._resolve_bind_name(str(sid), status.get("name") or str(sid))
@@ -124,6 +155,7 @@ class OwnedGamesService:
                 failed = notifications
             if failed:
                 self.plugin._pending_end_notifications.setdefault(group_id, []).extend(failed)
+        return {"baseline": False, "added": len(additions)}
 
     async def list_for_sender(self, sender_id, query="", offset=0, limit=50):
         """只根据消息发送者查绑定，不接受 LLM 指定的其他 QQ 或 Steam ID。"""
